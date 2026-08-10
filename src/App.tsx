@@ -39,6 +39,7 @@ import { GeneratorView } from './components/GeneratorView';
 import { SecurityAuditView } from './components/SecurityAuditView';
 import { SettingsView } from './components/SettingsView';
 import { DeleteConfirmModal } from './components/DeleteConfirmModal';
+import { Footer } from './components/Footer';
 
 export default function App() {
   const [encryptedVault, setEncryptedVault] = useState<EncryptedVault | null>(null);
@@ -426,8 +427,9 @@ export default function App() {
   // State 1: No vault exists -> Master Password Setup
   if (!encryptedVault) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-blue-500 selection:text-white">
+      <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-blue-500 selection:text-white flex flex-col justify-between">
         <MasterPasswordSetup onSetupComplete={handleSetupComplete} />
+        <Footer />
       </div>
     );
   }
@@ -435,7 +437,7 @@ export default function App() {
   // State 2: Vault exists, but locked -> Unlock Screen
   if (!masterKey || !vaultPayload) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-blue-500 selection:text-white">
+      <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-blue-500 selection:text-white flex flex-col justify-between">
         <UnlockVault
           onUnlock={handleUnlock}
           onPurgeVaultRequest={() =>
@@ -455,6 +457,7 @@ export default function App() {
           description="This action erases all encrypted credentials from local storage. Without your Master Password, this data is already unrecoverable."
           confirmText="Erase All Vault Data"
         />
+        <Footer />
       </div>
     );
   }
@@ -593,12 +596,7 @@ export default function App() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-slate-800/80 bg-slate-950 py-6 text-center text-xs text-slate-500">
-        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <p>Zero-Knowledge AES-256-GCM Password Manager • Client-side WebCrypto Security</p>
-          <p className="font-mono text-[11px] text-slate-600">PBKDF2-SHA256 • 600,000 Key Iterations</p>
-        </div>
-      </footer>
+      <Footer />
 
       {/* Add / Edit Credential Dialog */}
       <CredentialModal
