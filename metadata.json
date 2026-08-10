@@ -1,0 +1,6 @@
+{
+  "name": "Password Manager",
+  "description": "A secure, zero-knowledge password manager with AES-256-GCM encryption, password strength evaluator, and customizable password generator.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
