@@ -29,6 +29,9 @@ Aegis Vault is a modern, privacy-first password manager that runs entirely in yo
   - Export encrypted vault backup (`.enc` JSON file) for offsite storage.
   - Export unencrypted CSV for migration.
   - Import JSON backups with automatic deduplication.
+- 📱 **Mobile & 100% Offline Support**:
+  - **Progressive Web App (PWA)**: Precaching service worker enabled via `vite-plugin-pwa` for seamless offline usage on mobile and desktop browsers.
+  - **Android APK Ready**: Integrated Capacitor configuration (`capacitor.config.json`) and GitHub Actions workflow (`.github/workflows/build-apk.yml`) for automated APK generation.
 - 🎨 **Elegant Dark Mode UI**:
   - Modern, high-contrast dark theme built with Tailwind CSS, Lucide icons, and Motion transitions.
 
@@ -100,6 +103,14 @@ To test the production build locally:
 ```bash
 npm run preview
 ```
+
+---
+
+## 📱 Building the Android APK
+
+Aegis Vault includes Capacitor support and a GitHub Actions workflow that automatically builds an Android `.apk` file for free every time you push to GitHub.
+
+Refer to the dedicated guide: **[BUILD_APK.md](BUILD_APK.md)** for step-by-step instructions.
 
 ---
 
