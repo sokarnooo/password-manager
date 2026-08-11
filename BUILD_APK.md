@@ -22,7 +22,7 @@ This project includes a pre-configured GitHub Actions workflow in `.github/workf
 ### Prerequisites
 
 - [Node.js](https://nodejs.org/) v18+
-- [Android Studio](https://developer.android.com/studio) installed with Android SDK & JDK 17+
+- [Android Studio](https://developer.android.com/studio) installed with Android SDK & JDK 21+
 
 ### Step-by-Step Instructions
 
