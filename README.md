@@ -9,7 +9,10 @@ Aegis Vault is a modern, privacy-first password manager that runs entirely in yo
 
 ## ✨ Features
 
-- 🔐 **Zero-Knowledge Security Architecture**:
+- 🔐 **Zero-Knowledge Security & Authentication**:
+  - **Google Authentication**: Fast 1-click login via Google OAuth powered by Firebase.
+  - **Email & Master Password Auth**: Account creation and login using email address and master password.
+  - **Zero-Knowledge Cloud Sync**: Encrypted vault payloads (`AES-256-GCM`) sync to Firebase Firestore without ever exposing your plaintext credentials or master password to cloud servers.
   - **AES-256-GCM**: Military-grade authenticated encryption for all vault payloads.
   - **PBKDF2-SHA256**: 600,000 key derivation iterations with cryptographic salt.
   - **Master Key Verification**: HMAC-SHA256 verification token prevents master key exposure during unlock attempts.

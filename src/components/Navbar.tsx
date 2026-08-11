@@ -11,8 +11,12 @@ import {
   Sparkles,
   BarChart2,
   Zap,
+  UserCheck,
+  LogIn,
+  Cloud,
 } from 'lucide-react';
 import { ActiveTab, SecuritySettings } from '../types';
+import { User } from '../lib/firebase';
 
 interface NavbarProps {
   activeTab: ActiveTab;
@@ -24,6 +28,9 @@ interface NavbarProps {
   settings: SecuritySettings;
   onUpdateSettings: (settings: SecuritySettings) => void;
   vaultItemCount: number;
+  currentUser: User | null;
+  onOpenAuthModal: () => void;
+  onSignOut: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -36,6 +43,9 @@ export const Navbar: React.FC<NavbarProps> = ({
   settings,
   onUpdateSettings,
   vaultItemCount,
+  currentUser,
+  onOpenAuthModal,
+  onSignOut,
 }) => {
   const toggleTheme = () => {
     const nextTheme = settings.theme === 'dark' ? 'light' : 'dark';
@@ -151,6 +161,38 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Quick action buttons & Lock Status */}
         <div className="flex items-center gap-2 sm:gap-3">
+          {/* User Account / Auth Button */}
+          {currentUser ? (
+            <button
+              onClick={onOpenAuthModal}
+              title={`Logged in as ${currentUser.email || currentUser.displayName}`}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-medium transition-all group"
+            >
+              {currentUser.photoURL ? (
+                <img
+                  src={currentUser.photoURL}
+                  alt={currentUser.displayName || 'User'}
+                  className="w-5 h-5 rounded-full"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <Cloud className="h-3.5 w-3.5 text-emerald-400" />
+              )}
+              <span className="hidden sm:inline max-w-[120px] truncate">
+                {currentUser.displayName || currentUser.email}
+              </span>
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            </button>
+          ) : (
+            <button
+              onClick={onOpenAuthModal}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 text-xs font-medium transition-all"
+            >
+              <LogIn className="h-3.5 w-3.5 text-blue-400" />
+              <span className="hidden sm:inline">Sign In / Sync</span>
+            </button>
+          )}
+
           {isUnlocked && (
             <button
               onClick={onOpenAddModal}

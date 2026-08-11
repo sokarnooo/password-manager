@@ -29,7 +29,6 @@ import {
 } from './lib/crypto';
 
 import { Navbar } from './components/Navbar';
-import { MasterPasswordSetup } from './components/MasterPasswordSetup';
 import { UnlockVault } from './components/UnlockVault';
 import { DashboardView } from './components/DashboardView';
 import { VaultView } from './components/VaultView';
@@ -39,7 +38,15 @@ import { GeneratorView } from './components/GeneratorView';
 import { SecurityAuditView } from './components/SecurityAuditView';
 import { SettingsView } from './components/SettingsView';
 import { DeleteConfirmModal } from './components/DeleteConfirmModal';
+import { AuthModal } from './components/AuthModal';
 import { Footer } from './components/Footer';
+import { Lock } from 'lucide-react';
+import { auth, onAuthStateChanged, User } from './lib/firebase';
+import {
+  saveVaultToFirestore,
+  fetchVaultFromFirestore,
+  logoutUser,
+} from './lib/authService';
 
 export default function App() {
   const [encryptedVault, setEncryptedVault] = useState<EncryptedVault | null>(null);
@@ -48,6 +55,11 @@ export default function App() {
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
   const [settings, setSettings] = useState<SecuritySettings>(loadSecuritySettings);
+
+  // Authentication & Cloud Sync State
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isOfflineMode, setIsOfflineMode] = useState(false);
 
   // Auto lock countdown state
   const [autoLockSecondsLeft, setAutoLockSecondsLeft] = useState<number | null>(null);
@@ -70,10 +82,33 @@ export default function App() {
     isPurgeVault: false,
   });
 
-  // Load vault from storage on mount
+  // Load local vault from storage on mount
   useEffect(() => {
     const existing = loadEncryptedVault();
     setEncryptedVault(existing);
+  }, []);
+
+  // Listen for Firebase Auth state changes
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      setCurrentUser(user);
+      if (user) {
+        // Fetch remote vault from Firestore
+        const remoteVault = await fetchVaultFromFirestore(user.uid);
+        if (remoteVault) {
+          saveEncryptedVault(remoteVault);
+          setEncryptedVault(remoteVault);
+        } else {
+          // If user has local encryptedVault, push to Firestore
+          const localVault = loadEncryptedVault();
+          if (localVault) {
+            await saveVaultToFirestore(user.uid, localVault);
+          }
+        }
+      }
+    });
+
+    return () => unsubscribe();
   }, []);
 
   // Sync theme
@@ -179,6 +214,10 @@ export default function App() {
     setMasterKey(key);
     setVaultPayload(initialPayload);
     setActiveTab('dashboard');
+
+    if (currentUser) {
+      await saveVaultToFirestore(currentUser.uid, newEncryptedVault);
+    }
   };
 
   // Handle Unlocking Vault
@@ -212,7 +251,7 @@ export default function App() {
     }
   };
 
-  // Helper to persist updated payload to localStorage
+  // Helper to persist updated payload to localStorage and Firestore
   const saveUpdatedPayload = async (newPayload: VaultPayload) => {
     if (!masterKey || !encryptedVault) return;
 
@@ -229,6 +268,63 @@ export default function App() {
     saveEncryptedVault(updatedVault);
     setEncryptedVault(updatedVault);
     setVaultPayload(newPayload);
+
+    if (currentUser) {
+      await saveVaultToFirestore(currentUser.uid, updatedVault);
+    }
+  };
+
+  // Auth Callbacks
+  const handleAuthSuccess = async (user: User, masterPasswordUsed?: string) => {
+    setCurrentUser(user);
+    setIsAuthModalOpen(false);
+
+    // Fetch remote vault for the user
+    const remoteVault = await fetchVaultFromFirestore(user.uid);
+    if (remoteVault) {
+      saveEncryptedVault(remoteVault);
+      setEncryptedVault(remoteVault);
+
+      if (masterPasswordUsed) {
+        // Automatically attempt to unlock with master password
+        try {
+          const candidateKey = await deriveKeyFromMasterPassword(masterPasswordUsed, remoteVault.salt);
+          const isValid = await verifyMasterKey(
+            candidateKey,
+            remoteVault.verifierIv,
+            remoteVault.verifierCiphertext
+          );
+          if (isValid) {
+            const decryptedString = await decryptData(
+              remoteVault.vaultCiphertext,
+              remoteVault.vaultIv,
+              candidateKey
+            );
+            const parsedPayload = JSON.parse(decryptedString) as VaultPayload;
+            setMasterKey(candidateKey);
+            setVaultPayload(parsedPayload);
+            setActiveTab('dashboard');
+          }
+        } catch (e) {
+          console.error('Auto-unlock after auth failed:', e);
+        }
+      }
+    } else if (masterPasswordUsed && !encryptedVault) {
+      // Create new vault for user with master password
+      await handleSetupComplete(masterPasswordUsed, []);
+    } else if (encryptedVault) {
+      // Sync local vault up to user's new cloud profile
+      await saveVaultToFirestore(user.uid, encryptedVault);
+    }
+  };
+
+  const handleSignOut = async () => {
+    await logoutUser();
+    setCurrentUser(null);
+    setMasterKey(null);
+    setVaultPayload(null);
+    setIsOfflineMode(false);
+    setIsAuthModalOpen(false);
   };
 
   // Credential CRUD Operations
@@ -424,30 +520,153 @@ export default function App() {
 
   // RENDER STATES
 
-  // State 1: No vault exists -> Master Password Setup
-  if (!encryptedVault) {
+  // State 1: Unauthenticated Visitor Landing Page -> Sign In / Sign Up Card
+  if (!currentUser && !isOfflineMode && (!masterKey || !vaultPayload)) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-blue-500 selection:text-white flex flex-col justify-between">
-        <MasterPasswordSetup onSetupComplete={handleSetupComplete} />
+        <Navbar
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          isUnlocked={false}
+          onLockVault={lockVault}
+          onOpenAddModal={() => {}}
+          autoLockSecondsLeft={null}
+          settings={settings}
+          onUpdateSettings={setSettings}
+          vaultItemCount={0}
+          currentUser={currentUser}
+          onOpenAuthModal={() => setIsAuthModalOpen(true)}
+          onSignOut={handleSignOut}
+        />
+        <div className="flex-1 flex flex-col items-center justify-center py-10 px-4">
+          <AuthModal
+            currentUser={currentUser}
+            onAuthSuccess={handleAuthSuccess}
+            onLogout={handleSignOut}
+            onContinueOffline={() => setIsOfflineMode(true)}
+            isInline={true}
+          />
+        </div>
         <Footer />
       </div>
     );
   }
 
-  // State 2: Vault exists, but locked -> Unlock Screen
+  // State 2: Authenticated / Offline, but no vault initialized yet -> Prompt for Master Password Setup
+  if (!encryptedVault) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-blue-500 selection:text-white flex flex-col justify-between">
+        <Navbar
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          isUnlocked={false}
+          onLockVault={lockVault}
+          onOpenAddModal={() => {}}
+          autoLockSecondsLeft={null}
+          settings={settings}
+          onUpdateSettings={setSettings}
+          vaultItemCount={0}
+          currentUser={currentUser}
+          onOpenAuthModal={() => setIsAuthModalOpen(true)}
+          onSignOut={handleSignOut}
+        />
+        <div className="flex-1 flex flex-col items-center justify-center py-10 px-4">
+          <div className="max-w-md w-full p-6 bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl space-y-4 text-center">
+            <div className="mx-auto h-12 w-12 rounded-xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400">
+              <Lock className="w-6 h-6" />
+            </div>
+            <h2 className="text-xl font-bold text-white">
+              {currentUser ? 'Complete Account Setup' : 'Create Local Vault'}
+            </h2>
+            <p className="text-xs text-slate-400">
+              {currentUser
+                ? `Logged in as ${currentUser.email || currentUser.displayName}. Set a Master Password to encrypt your zero-knowledge vault.`
+                : 'Set a Master Password to create and encrypt your local zero-knowledge vault.'}
+            </p>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const form = e.currentTarget;
+                const passwordInput = form.elements.namedItem('masterPassword') as HTMLInputElement;
+                if (passwordInput && passwordInput.value.trim().length >= 8) {
+                  handleSetupComplete(passwordInput.value.trim(), []);
+                }
+              }}
+              className="space-y-4 text-left pt-2"
+            >
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1">
+                  Master Password
+                </label>
+                <input
+                  name="masterPassword"
+                  type="password"
+                  placeholder="Choose a strong master password..."
+                  required
+                  className="w-full px-4 py-2.5 bg-slate-950 border border-slate-700/80 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs"
+                />
+              </div>
+              <button
+                type="submit"
+                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold text-xs transition-all shadow-md cursor-pointer"
+              >
+                Create Zero-Knowledge Vault
+              </button>
+            </form>
+            {!currentUser && (
+              <button
+                type="button"
+                onClick={() => setIsOfflineMode(false)}
+                className="text-xs text-blue-400 hover:text-blue-300 pt-2 transition-colors cursor-pointer"
+              >
+                ← Return to Sign In / Sign Up
+              </button>
+            )}
+          </div>
+        </div>
+        <Footer />
+      </div>
+    );
+  }
+
+  // State 3: Vault exists, but locked -> Unlock Screen
   if (!masterKey || !vaultPayload) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-blue-500 selection:text-white flex flex-col justify-between">
-        <UnlockVault
-          onUnlock={handleUnlock}
-          onPurgeVaultRequest={() =>
-            setDeleteModalState({
-              isOpen: true,
-              credToDelete: null,
-              isPurgeVault: true,
-            })
-          }
+        <Navbar
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          isUnlocked={false}
+          onLockVault={lockVault}
+          onOpenAddModal={() => {}}
+          autoLockSecondsLeft={null}
+          settings={settings}
+          onUpdateSettings={setSettings}
+          vaultItemCount={0}
+          currentUser={currentUser}
+          onOpenAuthModal={() => setIsAuthModalOpen(true)}
+          onSignOut={handleSignOut}
         />
+        <div className="flex-1 flex flex-col items-center justify-center py-6 px-4">
+          <UnlockVault
+            onUnlock={handleUnlock}
+            onPurgeVaultRequest={() =>
+              setDeleteModalState({
+                isOpen: true,
+                credToDelete: null,
+                isPurgeVault: true,
+              })
+            }
+          />
+          {!currentUser && (
+            <button
+              onClick={() => setIsOfflineMode(false)}
+              className="mt-4 text-xs text-blue-400 hover:text-blue-300 font-medium transition-colors"
+            >
+              ← Back to Sign In / Cloud Account
+            </button>
+          )}
+        </div>
 
         <DeleteConfirmModal
           isOpen={deleteModalState.isOpen && deleteModalState.isPurgeVault === true}
@@ -457,6 +676,15 @@ export default function App() {
           description="This action erases all encrypted credentials from local storage. Without your Master Password, this data is already unrecoverable."
           confirmText="Erase All Vault Data"
         />
+
+        {isAuthModalOpen && (
+          <AuthModal
+            currentUser={currentUser}
+            onAuthSuccess={handleAuthSuccess}
+            onLogout={handleSignOut}
+            onClose={() => setIsAuthModalOpen(false)}
+          />
+        )}
         <Footer />
       </div>
     );
@@ -479,6 +707,9 @@ export default function App() {
         settings={settings}
         onUpdateSettings={setSettings}
         vaultItemCount={vaultPayload.credentials.length}
+        currentUser={currentUser}
+        onOpenAuthModal={() => setIsAuthModalOpen(true)}
+        onSignOut={handleSignOut}
       />
 
       {/* Main View Area */}
@@ -632,6 +863,15 @@ export default function App() {
         }
         confirmText={deleteModalState.isPurgeVault ? 'Purge Vault' : 'Delete'}
       />
+      {/* Auth Modal */}
+      {isAuthModalOpen && (
+        <AuthModal
+          currentUser={currentUser}
+          onAuthSuccess={handleAuthSuccess}
+          onLogout={handleSignOut}
+          onClose={() => setIsAuthModalOpen(false)}
+        />
+      )}
     </div>
   );
 }

@@ -4,7 +4,25 @@ Aegis Vault is built as a zero-knowledge Progressive Web App (PWA) powered by Ca
 
 ---
 
-## Method 1: Automated GitHub Actions (Easiest - No Android Studio Needed) 🚀
+## ⬇️ How Normal Users Can Download the APK from GitHub
+
+For a public GitHub repository, users can download the APK in **two simple ways**:
+
+### Option 1: Direct Download from "Releases" (Recommended for any visitor - No GitHub login needed!)
+1. Open the repository on GitHub (`https://github.com/YOUR_USERNAME/YOUR_REPO`).
+2. On the right side of the main page, click **Releases** (or go to `/releases`).
+3. Click on the **`latest`** release tag.
+4. Under **Assets**, click on `app-debug.apk` to download it directly to any phone or computer!
+
+### Option 2: From the "Actions" Tab (Logged-in GitHub users)
+1. Go to the **Actions** tab at the top of the repository.
+2. Click on the most recent workflow run under **Build Android APK** (with a green checkmark).
+3. Scroll down to the **Artifacts** section at the bottom.
+4. Click on `aegis-vault-debug.apk` to download a `.zip` archive containing the `.apk` file.
+
+---
+
+## Method 1: Automated GitHub Actions Build 🚀
 
 This project includes a pre-configured GitHub Actions workflow in `.github/workflows/build-apk.yml`.
 
