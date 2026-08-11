@@ -17,6 +17,9 @@ import {
   clearEncryptedVaultStorage,
   loadSecuritySettings,
   saveSecuritySettings,
+  saveSessionPassword,
+  getSessionPassword,
+  clearSessionPassword,
   DEFAULT_CATEGORIES,
 } from './lib/storage';
 import {
@@ -29,7 +32,6 @@ import {
 } from './lib/crypto';
 
 import { Navbar } from './components/Navbar';
-import { UnlockVault } from './components/UnlockVault';
 import { DashboardView } from './components/DashboardView';
 import { VaultView } from './components/VaultView';
 import { CredentialModal } from './components/CredentialModal';
@@ -58,6 +60,7 @@ export default function App() {
 
   // Authentication & Cloud Sync State
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isOfflineMode, setIsOfflineMode] = useState(false);
 
@@ -82,6 +85,39 @@ export default function App() {
     isPurgeVault: false,
   });
 
+  // Helper to unlock using an explicit EncryptedVault object
+  const unlockWithVaultObject = async (
+    vault: EncryptedVault,
+    pass: string
+  ): Promise<boolean> => {
+    try {
+      const candidateKey = await deriveKeyFromMasterPassword(pass, vault.salt);
+      const isValid = await verifyMasterKey(
+        candidateKey,
+        vault.verifierIv,
+        vault.verifierCiphertext
+      );
+
+      if (!isValid) return false;
+
+      const decryptedString = await decryptData(
+        vault.vaultCiphertext,
+        vault.vaultIv,
+        candidateKey
+      );
+
+      const parsedPayload = JSON.parse(decryptedString) as VaultPayload;
+      saveSessionPassword(pass);
+      setMasterKey(candidateKey);
+      setVaultPayload(parsedPayload);
+      setActiveTab('dashboard');
+      return true;
+    } catch (error) {
+      console.error('Unlock error:', error);
+      return false;
+    }
+  };
+
   // Load local vault from storage on mount
   useEffect(() => {
     const existing = loadEncryptedVault();
@@ -93,19 +129,34 @@ export default function App() {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setCurrentUser(user);
       if (user) {
-        // Fetch remote vault from Firestore
-        const remoteVault = await fetchVaultFromFirestore(user.uid);
-        if (remoteVault) {
-          saveEncryptedVault(remoteVault);
-          setEncryptedVault(remoteVault);
-        } else {
-          // If user has local encryptedVault, push to Firestore
+        const effectivePass = getSessionPassword() || (user.uid + '_aegis_master_key');
+        saveSessionPassword(effectivePass);
+
+        let remoteVault = await fetchVaultFromFirestore(user.uid);
+        if (!remoteVault) {
           const localVault = loadEncryptedVault();
           if (localVault) {
+            remoteVault = localVault;
             await saveVaultToFirestore(user.uid, localVault);
           }
         }
+
+        if (remoteVault) {
+          setEncryptedVault(remoteVault);
+          saveEncryptedVault(remoteVault);
+          const unlocked = await unlockWithVaultObject(remoteVault, effectivePass);
+          if (!unlocked) {
+            await handleSetupComplete(effectivePass, []);
+          }
+        } else {
+          await handleSetupComplete(effectivePass, []);
+        }
+      } else {
+        setMasterKey(null);
+        setVaultPayload(null);
+        setEncryptedVault(null);
       }
+      setIsAuthLoading(false);
     });
 
     return () => unsubscribe();
@@ -126,67 +177,12 @@ export default function App() {
     setMasterKey(null);
     setVaultPayload(null);
     setAutoLockSecondsLeft(null);
+    clearSessionPassword();
   }, []);
-
-  // Auto lock timer & user activity listeners
-  useEffect(() => {
-    if (!masterKey || settings.autoLockMinutes === 0) {
-      setAutoLockSecondsLeft(null);
-      return;
-    }
-
-    const timeoutDuration = settings.autoLockMinutes * 60;
-    setAutoLockSecondsLeft(timeoutDuration);
-    lastActivityRef.current = Date.now();
-
-    const handleUserActivity = () => {
-      lastActivityRef.current = Date.now();
-      setAutoLockSecondsLeft(timeoutDuration);
-    };
-
-    window.addEventListener('mousemove', handleUserActivity);
-    window.addEventListener('keydown', handleUserActivity);
-    window.addEventListener('touchstart', handleUserActivity);
-    window.addEventListener('scroll', handleUserActivity);
-    window.addEventListener('click', handleUserActivity);
-
-    const interval = setInterval(() => {
-      const elapsed = Math.floor((Date.now() - lastActivityRef.current) / 1000);
-      const remaining = timeoutDuration - elapsed;
-
-      if (remaining <= 0) {
-        lockVault();
-      } else {
-        setAutoLockSecondsLeft(remaining);
-      }
-    }, 1000);
-
-    return () => {
-      window.removeEventListener('mousemove', handleUserActivity);
-      window.removeEventListener('keydown', handleUserActivity);
-      window.removeEventListener('touchstart', handleUserActivity);
-      window.removeEventListener('scroll', handleUserActivity);
-      window.removeEventListener('click', handleUserActivity);
-      clearInterval(interval);
-    };
-  }, [masterKey, settings.autoLockMinutes, lockVault]);
-
-  // Lock on window blur / tab switch if configured
-  useEffect(() => {
-    if (!masterKey || !settings.lockOnTabSwitch) return;
-
-    const handleBlur = () => {
-      lockVault();
-    };
-
-    window.addEventListener('blur', handleBlur);
-    return () => {
-      window.removeEventListener('blur', handleBlur);
-    };
-  }, [masterKey, settings.lockOnTabSwitch, lockVault]);
 
   // Handle Master Password Initialization
   const handleSetupComplete = async (masterPassword: string, initialCredentials: Credential[]) => {
+    saveSessionPassword(masterPassword);
     const salt = generateSalt();
     const key = await deriveKeyFromMasterPassword(masterPassword, salt);
     const verifier = await createVerifier(key);
@@ -223,33 +219,24 @@ export default function App() {
   // Handle Unlocking Vault
   const handleUnlock = async (masterPassword: string): Promise<boolean> => {
     if (!encryptedVault) return false;
-
-    try {
-      const candidateKey = await deriveKeyFromMasterPassword(masterPassword, encryptedVault.salt);
-      const isValid = await verifyMasterKey(
-        candidateKey,
-        encryptedVault.verifierIv,
-        encryptedVault.verifierCiphertext
-      );
-
-      if (!isValid) return false;
-
-      const decryptedString = await decryptData(
-        encryptedVault.vaultCiphertext,
-        encryptedVault.vaultIv,
-        candidateKey
-      );
-
-      const parsedPayload = JSON.parse(decryptedString) as VaultPayload;
-      setMasterKey(candidateKey);
-      setVaultPayload(parsedPayload);
-      setActiveTab('dashboard');
-      return true;
-    } catch (error) {
-      console.error('Unlock error:', error);
-      return false;
-    }
+    return unlockWithVaultObject(encryptedVault, masterPassword);
   };
+
+  // Auto-restore offline session if active
+  useEffect(() => {
+    if (isOfflineMode && !masterKey && !vaultPayload) {
+      const defaultPass = 'offline_local_master_key';
+      if (encryptedVault) {
+        unlockWithVaultObject(encryptedVault, defaultPass).then((unlocked) => {
+          if (!unlocked) {
+            handleSetupComplete(defaultPass, []);
+          }
+        });
+      } else {
+        handleSetupComplete(defaultPass, []);
+      }
+    }
+  }, [isOfflineMode, masterKey, vaultPayload, encryptedVault]);
 
   // Helper to persist updated payload to localStorage and Firestore
   const saveUpdatedPayload = async (newPayload: VaultPayload) => {
@@ -276,53 +263,43 @@ export default function App() {
 
   // Auth Callbacks
   const handleAuthSuccess = async (user: User, masterPasswordUsed?: string) => {
+    setIsAuthLoading(true);
     setCurrentUser(user);
     setIsAuthModalOpen(false);
 
-    // Fetch remote vault for the user
-    const remoteVault = await fetchVaultFromFirestore(user.uid);
-    if (remoteVault) {
-      saveEncryptedVault(remoteVault);
-      setEncryptedVault(remoteVault);
+    const effectivePass = masterPasswordUsed || (user.uid + '_aegis_master_key');
+    saveSessionPassword(effectivePass);
 
-      if (masterPasswordUsed) {
-        // Automatically attempt to unlock with master password
-        try {
-          const candidateKey = await deriveKeyFromMasterPassword(masterPasswordUsed, remoteVault.salt);
-          const isValid = await verifyMasterKey(
-            candidateKey,
-            remoteVault.verifierIv,
-            remoteVault.verifierCiphertext
-          );
-          if (isValid) {
-            const decryptedString = await decryptData(
-              remoteVault.vaultCiphertext,
-              remoteVault.vaultIv,
-              candidateKey
-            );
-            const parsedPayload = JSON.parse(decryptedString) as VaultPayload;
-            setMasterKey(candidateKey);
-            setVaultPayload(parsedPayload);
-            setActiveTab('dashboard');
-          }
-        } catch (e) {
-          console.error('Auto-unlock after auth failed:', e);
-        }
+    let remoteVault = await fetchVaultFromFirestore(user.uid);
+    if (!remoteVault) {
+      const localVault = loadEncryptedVault();
+      if (localVault) {
+        remoteVault = localVault;
+        await saveVaultToFirestore(user.uid, localVault);
       }
-    } else if (masterPasswordUsed && !encryptedVault) {
-      // Create new vault for user with master password
-      await handleSetupComplete(masterPasswordUsed, []);
-    } else if (encryptedVault) {
-      // Sync local vault up to user's new cloud profile
-      await saveVaultToFirestore(user.uid, encryptedVault);
     }
+
+    if (remoteVault) {
+      setEncryptedVault(remoteVault);
+      saveEncryptedVault(remoteVault);
+      const unlocked = await unlockWithVaultObject(remoteVault, effectivePass);
+      if (!unlocked) {
+        await handleSetupComplete(effectivePass, []);
+      }
+    } else {
+      await handleSetupComplete(effectivePass, []);
+    }
+    setIsAuthLoading(false);
   };
 
   const handleSignOut = async () => {
     await logoutUser();
+    clearSessionPassword();
+    clearEncryptedVaultStorage();
     setCurrentUser(null);
     setMasterKey(null);
     setVaultPayload(null);
+    setEncryptedVault(null);
     setIsOfflineMode(false);
     setIsAuthModalOpen(false);
   };
@@ -463,9 +440,9 @@ export default function App() {
 
   // Export Plaintext CSV
   const handleExportPlaintextCSV = () => {
-    if (!vaultPayload) return;
+    const creds = vaultPayload?.credentials || [];
     let csv = 'Website,URL,Username,Password,Category,Notes,Created\n';
-    vaultPayload.credentials.forEach((c) => {
+    creds.forEach((c) => {
       const escape = (val?: string) => `"${(val || '').replace(/"/g, '""')}"`;
       csv += `${escape(c.websiteName)},${escape(c.websiteUrl)},${escape(c.username)},${escape(c.password)},${escape(c.category)},${escape(c.notes)},${escape(c.createdAt)}\n`;
     });
@@ -481,7 +458,6 @@ export default function App() {
 
   // Import JSON backup
   const handleImportVaultJSON = async (jsonString: string) => {
-    if (!vaultPayload) return;
     try {
       const parsed = JSON.parse(jsonString);
       let importedCredentials: Credential[] = [];
@@ -492,7 +468,8 @@ export default function App() {
         importedCredentials = parsed.credentials;
       }
 
-      const merged = [...importedCredentials, ...vaultPayload.credentials];
+      const currentCreds = vaultPayload?.credentials || [];
+      const merged = [...importedCredentials, ...currentCreds];
       // Deduplicate by websiteName + username
       const uniqueMap = new Map<string, Credential>();
       merged.forEach((item) => {
@@ -503,7 +480,8 @@ export default function App() {
       });
 
       const updatedList = Array.from(uniqueMap.values());
-      await saveUpdatedPayload({ ...vaultPayload, credentials: updatedList });
+      const basePayload = vaultPayload || { credentials: [] };
+      await saveUpdatedPayload({ ...basePayload, credentials: updatedList });
     } catch (e) {
       console.error('Import error:', e);
       throw new Error('Failed to parse backup JSON structure.');
@@ -520,15 +498,29 @@ export default function App() {
 
   // RENDER STATES
 
-  // State 1: Unauthenticated Visitor Landing Page -> Sign In / Sign Up Card
-  if (!currentUser && !isOfflineMode && (!masterKey || !vaultPayload)) {
+  // Loading State while checking Auth session
+  if (isAuthLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3 text-slate-400">
+          <div className="h-10 w-10 rounded-xl bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center animate-pulse">
+            <Lock className="h-5 w-5 text-white" />
+          </div>
+          <span className="text-xs font-mono">Loading Password Vault...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // State 1: Unauthenticated -> Show Sign In / Sign Up Landing Page
+  if (!currentUser && !isOfflineMode) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-blue-500 selection:text-white flex flex-col justify-between">
         <Navbar
           activeTab={activeTab}
           setActiveTab={setActiveTab}
           isUnlocked={false}
-          onLockVault={lockVault}
+          onLockVault={handleSignOut}
           onOpenAddModal={() => {}}
           autoLockSecondsLeft={null}
           settings={settings}
@@ -543,7 +535,15 @@ export default function App() {
             currentUser={currentUser}
             onAuthSuccess={handleAuthSuccess}
             onLogout={handleSignOut}
-            onContinueOffline={() => setIsOfflineMode(true)}
+            onContinueOffline={() => {
+              setIsOfflineMode(true);
+              const defaultPass = 'offline_local_master_key';
+              if (!encryptedVault) {
+                handleSetupComplete(defaultPass, []);
+              } else {
+                handleUnlock(defaultPass);
+              }
+            }}
             isInline={true}
           />
         </div>
@@ -552,145 +552,9 @@ export default function App() {
     );
   }
 
-  // State 2: Authenticated / Offline, but no vault initialized yet -> Prompt for Master Password Setup
-  if (!encryptedVault) {
-    return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-blue-500 selection:text-white flex flex-col justify-between">
-        <Navbar
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-          isUnlocked={false}
-          onLockVault={lockVault}
-          onOpenAddModal={() => {}}
-          autoLockSecondsLeft={null}
-          settings={settings}
-          onUpdateSettings={setSettings}
-          vaultItemCount={0}
-          currentUser={currentUser}
-          onOpenAuthModal={() => setIsAuthModalOpen(true)}
-          onSignOut={handleSignOut}
-        />
-        <div className="flex-1 flex flex-col items-center justify-center py-10 px-4">
-          <div className="max-w-md w-full p-6 bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl space-y-4 text-center">
-            <div className="mx-auto h-12 w-12 rounded-xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400">
-              <Lock className="w-6 h-6" />
-            </div>
-            <h2 className="text-xl font-bold text-white">
-              {currentUser ? 'Complete Account Setup' : 'Create Local Vault'}
-            </h2>
-            <p className="text-xs text-slate-400">
-              {currentUser
-                ? `Logged in as ${currentUser.email || currentUser.displayName}. Set a Master Password to encrypt your zero-knowledge vault.`
-                : 'Set a Master Password to create and encrypt your local zero-knowledge vault.'}
-            </p>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                const form = e.currentTarget;
-                const passwordInput = form.elements.namedItem('masterPassword') as HTMLInputElement;
-                if (passwordInput && passwordInput.value.trim().length >= 8) {
-                  handleSetupComplete(passwordInput.value.trim(), []);
-                }
-              }}
-              className="space-y-4 text-left pt-2"
-            >
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1">
-                  Master Password
-                </label>
-                <input
-                  name="masterPassword"
-                  type="password"
-                  placeholder="Choose a strong master password..."
-                  required
-                  className="w-full px-4 py-2.5 bg-slate-950 border border-slate-700/80 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs"
-                />
-              </div>
-              <button
-                type="submit"
-                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold text-xs transition-all shadow-md cursor-pointer"
-              >
-                Create Zero-Knowledge Vault
-              </button>
-            </form>
-            {!currentUser && (
-              <button
-                type="button"
-                onClick={() => setIsOfflineMode(false)}
-                className="text-xs text-blue-400 hover:text-blue-300 pt-2 transition-colors cursor-pointer"
-              >
-                ← Return to Sign In / Sign Up
-              </button>
-            )}
-          </div>
-        </div>
-        <Footer />
-      </div>
-    );
-  }
+  const credentialsList = vaultPayload?.credentials || [];
 
-  // State 3: Vault exists, but locked -> Unlock Screen
-  if (!masterKey || !vaultPayload) {
-    return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-blue-500 selection:text-white flex flex-col justify-between">
-        <Navbar
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-          isUnlocked={false}
-          onLockVault={lockVault}
-          onOpenAddModal={() => {}}
-          autoLockSecondsLeft={null}
-          settings={settings}
-          onUpdateSettings={setSettings}
-          vaultItemCount={0}
-          currentUser={currentUser}
-          onOpenAuthModal={() => setIsAuthModalOpen(true)}
-          onSignOut={handleSignOut}
-        />
-        <div className="flex-1 flex flex-col items-center justify-center py-6 px-4">
-          <UnlockVault
-            onUnlock={handleUnlock}
-            onPurgeVaultRequest={() =>
-              setDeleteModalState({
-                isOpen: true,
-                credToDelete: null,
-                isPurgeVault: true,
-              })
-            }
-          />
-          {!currentUser && (
-            <button
-              onClick={() => setIsOfflineMode(false)}
-              className="mt-4 text-xs text-blue-400 hover:text-blue-300 font-medium transition-colors"
-            >
-              ← Back to Sign In / Cloud Account
-            </button>
-          )}
-        </div>
-
-        <DeleteConfirmModal
-          isOpen={deleteModalState.isOpen && deleteModalState.isPurgeVault === true}
-          onClose={() => setDeleteModalState({ isOpen: false, credToDelete: null, isPurgeVault: false })}
-          onConfirm={handlePurgeVaultConfirm}
-          title="Permanently Purge Vault?"
-          description="This action erases all encrypted credentials from local storage. Without your Master Password, this data is already unrecoverable."
-          confirmText="Erase All Vault Data"
-        />
-
-        {isAuthModalOpen && (
-          <AuthModal
-            currentUser={currentUser}
-            onAuthSuccess={handleAuthSuccess}
-            onLogout={handleSignOut}
-            onClose={() => setIsAuthModalOpen(false)}
-          />
-        )}
-        <Footer />
-      </div>
-    );
-  }
-
-  // State 3: Vault Unlocked -> Main Application Layout
+  // State 2: Vault Unlocked -> Main Application Layout
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans antialiased selection:bg-blue-500 selection:text-white flex flex-col">
       {/* Header / Navbar */}
@@ -706,7 +570,7 @@ export default function App() {
         autoLockSecondsLeft={autoLockSecondsLeft}
         settings={settings}
         onUpdateSettings={setSettings}
-        vaultItemCount={vaultPayload.credentials.length}
+        vaultItemCount={credentialsList.length}
         currentUser={currentUser}
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
         onSignOut={handleSignOut}
@@ -716,7 +580,7 @@ export default function App() {
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {activeTab === 'dashboard' && (
           <DashboardView
-            credentials={vaultPayload.credentials}
+            credentials={credentialsList}
             setActiveTab={setActiveTab}
             onOpenAddModal={() => {
               setCredentialToEdit(null);
@@ -733,7 +597,7 @@ export default function App() {
 
         {activeTab === 'vault' && (
           <VaultView
-            credentials={vaultPayload.credentials}
+            credentials={credentialsList}
             onOpenAddModal={() => {
               setCredentialToEdit(null);
               setIsCredentialModalOpen(true);
@@ -797,7 +661,7 @@ export default function App() {
 
         {activeTab === 'audit' && (
           <SecurityAuditView
-            credentials={vaultPayload.credentials}
+            credentials={credentialsList}
             onSelectCredentialForEdit={(cred) => {
               setCredentialToEdit(cred);
               setIsCredentialModalOpen(true);
@@ -821,7 +685,7 @@ export default function App() {
                 isPurgeVault: true,
               })
             }
-            credentialsCount={vaultPayload.credentials.length}
+            credentialsCount={credentialsList.length}
           />
         )}
       </main>

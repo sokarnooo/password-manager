@@ -4,11 +4,39 @@ const VAULT_STORAGE_KEY = 'SECURE_PASSWORD_VAULT_DATA_V1';
 const SETTINGS_STORAGE_KEY = 'SECURE_PASSWORD_VAULT_SETTINGS_V1';
 
 export const DEFAULT_SETTINGS: SecuritySettings = {
-  autoLockMinutes: 5,
-  lockOnTabSwitch: true,
+  autoLockMinutes: 0, // 0 = Disabled / Never
+  lockOnTabSwitch: false, // Disabled
   clearClipboardSeconds: 30,
   theme: 'dark',
 };
+
+const SESSION_PASS_KEY = 'AEGIS_VAULT_SESSION_PASS_V1';
+
+export function saveSessionPassword(pass: string): void {
+  try {
+    localStorage.setItem(SESSION_PASS_KEY, pass);
+    sessionStorage.setItem(SESSION_PASS_KEY, pass);
+  } catch (e) {
+    console.error('Failed to save session password:', e);
+  }
+}
+
+export function getSessionPassword(): string | null {
+  try {
+    return localStorage.getItem(SESSION_PASS_KEY) || sessionStorage.getItem(SESSION_PASS_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function clearSessionPassword(): void {
+  try {
+    localStorage.removeItem(SESSION_PASS_KEY);
+    sessionStorage.removeItem(SESSION_PASS_KEY);
+  } catch (e) {
+    console.error('Failed to clear session password:', e);
+  }
+}
 
 export const DEFAULT_CATEGORIES = [
   'All',

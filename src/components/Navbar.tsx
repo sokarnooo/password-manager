@@ -13,6 +13,7 @@ import {
   Zap,
   UserCheck,
   LogIn,
+  LogOut,
   Cloud,
 } from 'lucide-react';
 import { ActiveTab, SecuritySettings } from '../types';
@@ -216,25 +217,14 @@ export const Navbar: React.FC<NavbarProps> = ({
             )}
           </button>
 
-          {/* Auto Lock Timer Display */}
-          {isUnlocked && autoLockSecondsLeft !== null && (
-            <div
-              title="Auto-lock inactivity countdown"
-              className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800/50 border border-slate-700/50 text-xs font-mono text-slate-400"
-            >
-              <Clock className="h-3.5 w-3.5 text-blue-400 animate-pulse" />
-              <span>{formatLockTime(autoLockSecondsLeft)}</span>
-            </div>
-          )}
-
-          {/* Lock / Logout Button */}
+          {/* Logout Button */}
           {isUnlocked && (
             <button
-              onClick={onLockVault}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 text-xs sm:text-sm font-medium transition-all"
+              onClick={onSignOut}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 text-xs sm:text-sm font-medium transition-all cursor-pointer"
             >
-              <Lock className="h-4 w-4" />
-              <span className="hidden sm:inline">Lock Vault</span>
+              <LogOut className="h-4 w-4" />
+              <span className="hidden sm:inline">Sign Out</span>
             </button>
           )}
         </div>

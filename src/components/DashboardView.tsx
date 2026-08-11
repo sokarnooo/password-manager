@@ -28,15 +28,16 @@ interface DashboardViewProps {
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
-  credentials,
+  credentials = [],
   setActiveTab,
   onOpenAddModal,
   onSelectCredentialForEdit,
   onCopyToClipboard,
   copiedId,
 }) => {
+  const safeCredentials = credentials || [];
   // Compute analytics
-  const totalCount = credentials.length;
+  const totalCount = safeCredentials.length;
 
   let weakCount = 0;
   let fairCount = 0;
@@ -45,7 +46,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const passwordsToUpdate: { cred: Credential; reason: string }[] = [];
   const passwordMap: Map<string, Credential[]> = new Map();
 
-  credentials.forEach((c) => {
+  safeCredentials.forEach((c) => {
     const evalRes = evaluatePasswordStrength(c.password);
     if (evalRes.rating === 'Very Weak' || evalRes.rating === 'Weak') {
       weakCount++;

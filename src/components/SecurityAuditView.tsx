@@ -20,15 +20,16 @@ interface SecurityAuditViewProps {
 }
 
 export const SecurityAuditView: React.FC<SecurityAuditViewProps> = ({
-  credentials,
+  credentials = [],
   onSelectCredentialForEdit,
   onOpenGeneratorTab,
 }) => {
+  const safeCredentials = credentials || [];
   const weakItems: { cred: Credential; rating: string }[] = [];
   const oldItems: { cred: Credential; daysOld: number }[] = [];
   const reusedMap: Map<string, Credential[]> = new Map();
 
-  credentials.forEach((c) => {
+  safeCredentials.forEach((c) => {
     const evalRes = evaluatePasswordStrength(c.password);
     if (evalRes.rating === 'Very Weak' || evalRes.rating === 'Weak') {
       weakItems.push({ cred: c, rating: evalRes.rating });

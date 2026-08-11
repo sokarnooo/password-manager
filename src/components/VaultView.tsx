@@ -34,7 +34,7 @@ interface VaultViewProps {
 }
 
 export const VaultView: React.FC<VaultViewProps> = ({
-  credentials,
+  credentials = [],
   onOpenAddModal,
   onEditCredential,
   onDeleteCredential,
@@ -42,6 +42,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
   onCopyToClipboard,
   copiedId,
 }) => {
+  const safeCredentials = credentials || [];
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [sortBy, setSortBy] = useState<'name-asc' | 'name-desc' | 'date-new' | 'date-old'>('name-asc');
@@ -54,7 +55,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
 
   // Filter & Sort credentials
   const filteredCredentials = useMemo(() => {
-    return credentials
+    return safeCredentials
       .filter((item) => {
         // Category filter
         if (selectedCategory === 'Favorites' && !item.isFavorite) return false;

@@ -117,80 +117,39 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <div>
             <h1 className="text-2xl font-extrabold text-white tracking-tight">Vault Settings & Security</h1>
             <p className="text-xs text-slate-400 mt-0.5">
-              Configure auto-lock duration, master key rotation, backups, and clipboard clearing.
+              Configure master key rotation, backups, and clipboard auto-clearing.
             </p>
           </div>
         </div>
       </div>
 
-      {/* Auto-Lock & Clipboard Settings */}
+      {/* Clipboard Settings */}
       <div className="bg-slate-900/90 border border-slate-800 p-6 sm:p-8 rounded-2xl shadow-xl space-y-6">
         <h2 className="text-base font-bold text-white uppercase tracking-wider flex items-center gap-2">
           <Clock className="h-5 w-5 text-blue-400" />
-          <span>Security Timers & Auto-Lock</span>
+          <span>Clipboard Security</span>
         </h2>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-          {/* Auto-Lock duration */}
-          <div className="space-y-2">
-            <label className="block text-xs font-semibold text-slate-300 uppercase">
-              Auto-Lock Inactivity Timeout
-            </label>
-            <select
-              value={settings.autoLockMinutes}
-              onChange={(e) =>
-                onUpdateSettings({ ...settings, autoLockMinutes: parseInt(e.target.value, 10) })
-              }
-              className="w-full px-4 py-2.5 bg-slate-950 border border-slate-700/80 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value={1}>1 Minute</option>
-              <option value={5}>5 Minutes (Default)</option>
-              <option value={15}>15 Minutes</option>
-              <option value={30}>30 Minutes</option>
-              <option value={0}>Never (Manual Lock Only)</option>
-            </select>
-            <p className="text-[11px] text-slate-500">
-              Automatically locks the vault and wipes in-memory keys after inactivity.
-            </p>
-          </div>
-
-          {/* Clipboard clear timer */}
-          <div className="space-y-2">
-            <label className="block text-xs font-semibold text-slate-300 uppercase">
-              Clipboard Auto-Clear Timer
-            </label>
-            <select
-              value={settings.clearClipboardSeconds}
-              onChange={(e) =>
-                onUpdateSettings({ ...settings, clearClipboardSeconds: parseInt(e.target.value, 10) })
-              }
-              className="w-full px-4 py-2.5 bg-slate-950 border border-slate-700/80 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value={10}>10 Seconds</option>
-              <option value={30}>30 Seconds (Recommended)</option>
-              <option value={60}>60 Seconds</option>
-              <option value={0}>Disabled</option>
-            </select>
-            <p className="text-[11px] text-slate-500">
-              Erases copied passwords from system clipboard after the timeout.
-            </p>
-          </div>
+        <div className="max-w-md space-y-2">
+          <label className="block text-xs font-semibold text-slate-300 uppercase">
+            Clipboard Auto-Clear Timer
+          </label>
+          <select
+            value={settings.clearClipboardSeconds}
+            onChange={(e) =>
+              onUpdateSettings({ ...settings, clearClipboardSeconds: parseInt(e.target.value, 10) })
+            }
+            className="w-full px-4 py-2.5 bg-slate-950 border border-slate-700/80 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value={10}>10 Seconds</option>
+            <option value={30}>30 Seconds (Recommended)</option>
+            <option value={60}>60 Seconds</option>
+            <option value={0}>Disabled</option>
+          </select>
+          <p className="text-[11px] text-slate-500">
+            Erases copied passwords from system clipboard after the timeout.
+          </p>
         </div>
-
-        <label className="flex items-center gap-3 p-3.5 bg-slate-950 border border-slate-800 rounded-xl cursor-pointer">
-          <input
-            type="checkbox"
-            checked={settings.lockOnTabSwitch}
-            onChange={(e) => onUpdateSettings({ ...settings, lockOnTabSwitch: e.target.checked })}
-            className="rounded border-slate-700 bg-slate-900 text-blue-600 focus:ring-blue-500 h-4 w-4"
-          />
-          <div>
-            <span className="text-xs font-semibold text-slate-200 block">Lock Vault on Window/Tab Switch</span>
-            <span className="text-[11px] text-slate-400">
-              Immediately lock vault when switching browser tabs or minimizing windows.
-            </span>
-          </div>
-        </label>
       </div>
 
       {/* Change Master Password */}
